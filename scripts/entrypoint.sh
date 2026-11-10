@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Backups são o banco inteiro: só o dono (uid 1000) lê, inclusive no volume do host.
+umask 077
+
 INTERVAL_HOURS="${INTERVAL_HOURS:-6}"
 RETRY_MINUTES="${RETRY_MINUTES:-15}"
 RUN_ON_START="${RUN_ON_START:-true}"

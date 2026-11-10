@@ -96,10 +96,18 @@ func publicHost() string {
 
 func sessionSecret() []byte {
 	if s := os.Getenv("SESSION_SECRET"); s != "" {
+		// segredo curto deixa forjar sessão por força bruta offline do HMAC
+		if len(s) < 32 {
+			log.Fatal("[Config] SESSION_SECRET precisa ter pelo menos 32 caracteres (ex.: openssl rand -hex 32).")
+		}
 		return []byte(s)
 	}
 	// Sem SESSION_SECRET as sessões caem a cada restart do container —
 	// aceitável para um único admin.
+	return randomSecret()
+}
+
+func randomSecret() []byte {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatalf("[Config] falha ao gerar segredo de sessão: %v", err)
@@ -132,8 +140,18 @@ func (s *server) scheduler() {
 
 func main() {
 	cfg := loadConfig()
-	srv := newServer(cfg, sessionSecret(), newJobManager())
+	// A senha entra na chave do HMAC: trocar ADMIN_PASSWORD invalida as
+	// sessões abertas mesmo com SESSION_SECRET fixo.
+	srv := newServer(cfg, append(sessionSecret(), cfg.adminPassword...), newJobManager())
 	go srv.scheduler()
 	log.Printf("[Web] UI em :%s (usuário %s); backup a cada %s", cfg.port, cfg.adminUser, cfg.interval)
-	log.Fatal(http.ListenAndServe(":"+cfg.port, srv.routes()))
+	// Timeouts: sem eles um cliente lento (Slowloris) segura conexões para sempre.
+	hs := &http.Server{
+		Addr:              ":" + cfg.port,
+		Handler:           srv.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	log.Fatal(hs.ListenAndServe())
 }

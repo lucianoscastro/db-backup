@@ -25,6 +25,7 @@ var staticFS embed.FS
 
 type server struct {
 	cfg     config
+	mu      sync.RWMutex // protege secret, trocado no logout
 	secret  []byte
 	jobs    *jobManager
 	limiter *loginLimiter
@@ -112,6 +113,9 @@ func (s *server) headers(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "same-origin")
 		// 'self' estrito: nada inline, nada externo — todo JS/CSS vem de /static
 		h.Set("Content-Security-Policy", "default-src 'self'")
+		if s.secureCookies(r) {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -119,7 +123,7 @@ func (s *server) headers(next http.Handler) http.Handler {
 func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie("session")
-		if err != nil || !verifyToken(s.secret, c.Value) {
+		if err != nil || !verifyToken(s.currentSecret(), c.Value) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.Error(w, "não autenticado", http.StatusUnauthorized)
 			} else {
@@ -165,6 +169,12 @@ func (s *server) sameOrigin(r *http.Request) bool {
 	return s.cfg.publicHost != "" && originHost == s.cfg.publicHost
 }
 
+func (s *server) currentSecret() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.secret
+}
+
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -206,7 +216,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	exp := time.Now().Add(s.cfg.sessionTTL)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
-		Value:    signToken(s.secret, r.FormValue("user"), exp),
+		Value:    signToken(s.currentSecret(), r.FormValue("user"), exp),
 		Path:     "/",
 		Expires:  exp,
 		HttpOnly: true,
@@ -217,6 +227,14 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// O token é stateless: apagar o cookie não basta, um token copiado seguiria
+	// válido até expirar. Trocar o segredo revoga todas as sessões.
+	// ponytail: com SESSION_SECRET fixo, um restart volta ao segredo original e
+	// tokens antigos ainda não expirados revivem; o upgrade seria persistir uma
+	// lista de revogação.
+	s.mu.Lock()
+	s.secret = randomSecret()
+	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name: "session", Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: s.secureCookies(r),

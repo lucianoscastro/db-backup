@@ -2,6 +2,8 @@
 
 Imagem Docker que faz backup periódico de **MongoDB** e **SQL Server** (arquitetura pronta para outros bancos), com **UI web protegida por login** para listar servidores, listar backups, disparar backup e restaurar. Cada backup pode ser enviado para o **S3**.
 
+**Imagem:** [lucianoscastro/db-backup](https://hub.docker.com/r/lucianoscastro/db-backup) no Docker Hub · **Código-fonte:** [github.com/lucianoscastro/db-backup](https://github.com/lucianoscastro/db-backup)
+
 - **Drivers por engine**: `scripts/drivers/<engine>.sh` — um script novo = um banco novo, sem tocar no resto
 - **Um diretório por base**: `/backups/<engine>/<base>/<base>_<timestamp>.<ext>`
 - **Agendamento próprio**: roda a cada `INTERVAL_HOURS`, sem cron no host
@@ -102,6 +104,7 @@ O `BACKUP DATABASE` do SQL Server é **sempre server-side**: o `.bak` nasce no d
 | `MSSQL_DIR_LOCAL` | `/mssql-backup` | O **mesmo volume**, montado neste container |
 | `MSSQL_COMPRESS` | `false` | `WITH COMPRESSION` — exige edição com suporte (não Express) |
 | `MSSQL_TIMEOUT_MINUTES` | `60` | Timeout de cada BACKUP/RESTORE |
+| `MSSQL_CA_FILE` | — | CA (PEM) que assina o certificado do servidor. Definida, a conexão é cifrada e o certificado validado; vazia, o certificado é aceito sem validação (vulnerável a MITM na rede) |
 
 **Permissões do volume compartilhado** (uma vez, após criar os containers): o SQL Server roda como uid 10001 e cria os `.bak` com modo 640; este container roda como uid 1000.
 
@@ -123,7 +126,7 @@ Um driver novo é um script em `scripts/drivers/<engine>.sh` implementando 4 sub
 - **Login obrigatório**: `ADMIN_PASSWORD` (mín. 8 caracteres) precisa estar definida no modo `serve`; `ADMIN_USER` padrão `admin`
 - **Proteções**: comparação em tempo constante, 5 tentativas erradas = 15 min de bloqueio por IP, cookie `HttpOnly`+`SameSite=Strict` assinado (HMAC), verificação de `Origin` nos POSTs, CSP estrito
 - **Exposição**: o container serve HTTP puro — na internet, coloque atrás de um reverse proxy com HTTPS (o cookie `Secure` liga sozinho via `X-Forwarded-Proto`)
-- **Sessões**: defina `SESSION_SECRET` para o login sobreviver a restarts do container
+- **Sessões**: defina `SESSION_SECRET` para o login sobreviver a restarts do container. O logout e a troca de `ADMIN_PASSWORD` invalidam todas as sessões abertas
 - **Jobs**: um por vez (backup agendado, backup manual e restore não concorrem); log de cada job visível na UI
 
 | Variável | Padrão | Descrição |
@@ -132,7 +135,7 @@ Um driver novo é um script em `scripts/drivers/<engine>.sh` implementando 4 sub
 | `ADMIN_USER` | `admin` | |
 | `WEB_PORT` | `8080` | |
 | `SESSION_TTL_HOURS` | `12` | Validade do login |
-| `SESSION_SECRET` | *(aleatório)* | Fixe para manter sessões entre restarts |
+| `SESSION_SECRET` | *(aleatório)* | Fixe para manter sessões entre restarts (mín. 32 caracteres: `openssl rand -hex 32`) |
 | `COOKIE_SECURE` | `auto` | `auto` liga o cookie Secure atrás de HTTPS |
 | `PUBLIC_URL` | — | Domínio público, quando o reverse proxy não repassa o Host original (ver abaixo) |
 
@@ -200,6 +203,7 @@ Limites conhecidos:
 - O upload usa PUT simples: **teto de 5 GB por arquivo**. Acima disso o backup local continua, mas o envio falha com erro explícito (seria preciso multipart).
 - O dump do Mongo vai para um diretório temporário antes de virar `.tar`, então o pico de disco é ~2× o tamanho do dump comprimido.
 - A retenção local só apaga o arquivo antigo **depois** que o novo foi gravado e validado.
+- Os backups são gravados com permissão `0600` (só o uid 1000 lê) e **sem criptografia**: no S3, ative a criptografia padrão do bucket (SSE).
 
 ### Migrando da imagem mongo-only
 

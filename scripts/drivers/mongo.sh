@@ -23,6 +23,21 @@ DUMP_TIMEOUT_MINUTES="${DUMP_TIMEOUT_MINUTES:-60}"
 
 enabled() { [ -n "$MONGO_URI" ]; }
 
+# A URI (com a senha) vai num YAML 0600 lido via --config, nunca em argv —
+# senão apareceria no ps / /proc/<pid>/cmdline. Aspas simples YAML: ' vira ''.
+mongo_config() {
+    local f
+    f=$(mktemp)
+    printf "uri: '%s'\n" "${MONGO_URI//\'/\'\'}" >"$f"
+    echo "$f"
+}
+
+# Os mongo-tools ecoam a URI completa (com senha) nas mensagens de erro, que
+# iriam parar no docker logs e no log do job na UI: mascara user:senha@.
+redact() {
+    sed -E 's#(mongodb(\+srv)?://[^:/@]*:)[^@]*@#\1***@#g'
+}
+
 info() {
     echo "MongoDB"
     # host:porta sem esquema nem credenciais; host sem porta = mongodb+srv
@@ -30,10 +45,11 @@ info() {
 }
 
 run_backup() {
-    local timestamp staging failed=0
+    local timestamp staging conf failed=0
     timestamp=$(date +%Y%m%d_%H%M%S)
     staging=$(mktemp -d)
-    trap 'rm -rf "$staging"' RETURN
+    conf=$(mongo_config)
+    trap 'rm -rf "$staging" "$conf"' RETURN
 
     echo "[Mongo] Iniciando ciclo em $(date -Iseconds)"
 
@@ -46,7 +62,7 @@ run_backup() {
     # mas nunca responde penduraria o daemon para sempre.
     local rc=0 limit
     limit=$(awk "BEGIN{printf \"%d\", $DUMP_TIMEOUT_MINUTES * 60}")
-    timeout -k 30 "$limit" mongodump --uri="$MONGO_URI" --out="$staging" --gzip --quiet || rc=$?
+    timeout -k 30 "$limit" mongodump --config="$conf" --out="$staging" --gzip --quiet 2> >(redact >&2) || rc=$?
 
     case "$rc" in
         0) ;;
@@ -109,15 +125,16 @@ run_restore() {
 
     [ -f "$archive" ] || { echo "[Mongo] ERRO: arquivo não encontrado: $archive" >&2; return 1; }
 
-    local workdir
+    local workdir conf
     workdir=$(mktemp -d)
-    trap 'rm -rf "$workdir"' RETURN
+    conf=$(mongo_config)
+    trap 'rm -rf "$workdir" "$conf"' RETURN
 
     echo "[Mongo] Restaurando '$db' a partir de $archive"
     tar -xf "$archive" -C "$workdir"
 
-    mongorestore --uri="$MONGO_URI" --gzip ${drop_args[@]+"${drop_args[@]}"} \
-        --nsInclude="${db}.*" --dir="$workdir/$db" --db="$db"
+    mongorestore --config="$conf" --gzip ${drop_args[@]+"${drop_args[@]}"} \
+        --nsInclude="${db}.*" --dir="$workdir/$db" --db="$db" 2> >(redact >&2)
 
     echo "[Mongo] Concluído: base '$db' restaurada."
 }

@@ -34,12 +34,14 @@ s3_url() {
     echo "${host%/}/${S3_BUCKET}/${key}"
 }
 
+# A credencial entra pelo stdin (-K -), não por argv: --user apareceria no
+# ps / /proc/<pid>/cmdline até o curl apagá-lo.
 s3_curl() {
-    curl --silent --show-error --fail \
-        --retry 3 --retry-delay 5 --retry-connrefused \
-        --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
-        --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
-        "$@"
+    printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" |
+        curl -K - --silent --show-error --fail \
+            --retry 3 --retry-delay 5 --retry-connrefused \
+            --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
+            "$@"
 }
 
 s3_upload() {
