@@ -68,5 +68,5 @@ jobs:
           username: lucianoscastro
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE }}
-          short-description: Backup agendado de MongoDB e SQL Server com UI web, retenção local e envio para S3.
+          short-description: Scheduled MongoDB and SQL Server backups with a web UI, local retention and S3 upload.
           readme-filepath: ./README.md
