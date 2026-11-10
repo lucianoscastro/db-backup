@@ -1,0 +1,49 @@
+# Scans the published image for CVEs after each publish and every day (new CVEs appear without code changes).
+#   - every finding goes to the Security tab (Code scanning) as SARIF
+#   - the job fails, turning the README badge red, when a HIGH or CRITICAL CVE has a fix available
+#
+# vex/ holds the CVEs reviewed as not affecting this image.
+# Trivy runs from its image pinned by digest (no third-party action holds the token).
+name: cve
+
+on:
+  workflow_run:
+    workflows: [docker]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  IMAGE: lucianoscastro/db-backup:latest
+  TRIVY: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+
+jobs:
+  scan:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Scan (all findings)
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy"
+          docker run --rm -v "$RUNNER_TEMP/trivy:/root/.cache/trivy" -v "$PWD:/w" -w /w "$TRIVY" image \
+            --image-src remote --scanners vuln --vex vex/CVE-2025-60876.vex.json --format sarif --output trivy.sarif "$IMAGE"
+
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+      - name: Gate (fixable HIGH/CRITICAL)
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/trivy:/root/.cache/trivy" -v "$PWD:/w" -w /w "$TRIVY" image \
+            --image-src remote --scanners vuln --vex vex/CVE-2025-60876.vex.json --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"

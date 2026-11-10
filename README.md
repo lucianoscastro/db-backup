@@ -1,5 +1,10 @@
 # db-backup
 
+[![build](https://github.com/lucianoscastro/db-backup/actions/workflows/docker.yml/badge.svg)](https://github.com/lucianoscastro/db-backup/actions/workflows/docker.yml)
+[![CVE scan](https://github.com/lucianoscastro/db-backup/actions/workflows/cve.yml/badge.svg)](https://github.com/lucianoscastro/db-backup/actions/workflows/cve.yml)
+[![Docker pulls](https://img.shields.io/docker/pulls/lucianoscastro/db-backup)](https://hub.docker.com/r/lucianoscastro/db-backup)
+[![Image size](https://img.shields.io/docker/image-size/lucianoscastro/db-backup/latest)](https://hub.docker.com/r/lucianoscastro/db-backup)
+
 Docker image for scheduled backups of **MongoDB** and **SQL Server** (with a driver architecture ready for other databases), plus a **login-protected web UI** to list servers, browse backups, trigger a backup and restore. Every backup can optionally be shipped to **S3**.
 
 **Image:** [lucianoscastro/db-backup](https://hub.docker.com/r/lucianoscastro/db-backup) on Docker Hub · **Source:** [github.com/lucianoscastro/db-backup](https://github.com/lucianoscastro/db-backup)
