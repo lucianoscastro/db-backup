@@ -1,20 +1,20 @@
 # db-backup
 
-Imagem Docker que faz backup periódico de **MongoDB** e **SQL Server** (arquitetura pronta para outros bancos), com **UI web protegida por login** para listar servidores, listar backups, disparar backup e restaurar. Cada backup pode ser enviado para o **S3**.
+Docker image for scheduled backups of **MongoDB** and **SQL Server** (with a driver architecture ready for other databases), plus a **login-protected web UI** to list servers, browse backups, trigger a backup and restore. Every backup can optionally be shipped to **S3**.
 
-**Imagem:** [lucianoscastro/db-backup](https://hub.docker.com/r/lucianoscastro/db-backup) no Docker Hub · **Código-fonte:** [github.com/lucianoscastro/db-backup](https://github.com/lucianoscastro/db-backup)
+**Image:** [lucianoscastro/db-backup](https://hub.docker.com/r/lucianoscastro/db-backup) on Docker Hub · **Source:** [github.com/lucianoscastro/db-backup](https://github.com/lucianoscastro/db-backup)
 
-- **Drivers por engine**: `scripts/drivers/<engine>.sh` — um script novo = um banco novo, sem tocar no resto
-- **Um diretório por base**: `/backups/<engine>/<base>/<base>_<timestamp>.<ext>`
-- **Agendamento próprio**: roda a cada `INTERVAL_HOURS`, sem cron no host
-- **UI web opcional**: login com rate-limit, sessão assinada, um job por vez
-- **S3 opcional**: `S3_ENABLED=false` mantém só o backup local
-- **Restore** pelo UI, pelo arquivo local ou direto do S3
+- **One driver per engine**: `scripts/drivers/<engine>.sh` — a new script = a new database, nothing else changes
+- **One directory per database**: `/backups/<engine>/<db>/<db>_<timestamp>.<ext>`
+- **Built-in scheduler**: runs every `INTERVAL_HOURS`, no host cron needed
+- **Optional web UI**: rate-limited login, signed sessions, one job at a time
+- **Optional S3**: `S3_ENABLED=false` keeps backups local only
+- **Restore** from the UI, from a local file or straight from S3
 
-## Uso
+## Usage
 
 ```bash
-cp .env.example .env    # configure os engines, o S3 e a ADMIN_PASSWORD
+cp .env.example .env    # configure the engines, S3 and ADMIN_PASSWORD
 
 docker run -d --name db-backup \
   --restart unless-stopped \
@@ -24,13 +24,13 @@ docker run -d --name db-backup \
   lucianoscastro/db-backup:latest
 ```
 
-A UI fica em `http://localhost:8080` (usuário `admin` por padrão). Para rodar **sem UI** (sem porta exposta), use o comando `daemon`:
+The UI is served at `http://localhost:8080` (user `admin` by default). To run **without the UI** (no exposed port), use the `daemon` command:
 
 ```bash
 docker run -d ... lucianoscastro/db-backup:latest daemon
 ```
 
-Com `docker-compose.yml` (exemplo com SQL Server no mesmo host):
+With `docker-compose.yml` (example with SQL Server on the same host):
 
 ```yaml
 services:
@@ -43,13 +43,13 @@ services:
       - "8080:8080"
     volumes:
       - ./backups:/backups
-      - mssql-backup:/mssql-backup   # mesmo volume do SQL Server (ver abaixo)
+      - mssql-backup:/mssql-backup   # same volume as SQL Server (see below)
     group_add:
-      - "10001"                      # gid do mssql: permite ler os .bak (modo 640)
-    # Hardening (opcional, mas recomendado): rootfs imutável e sem escalação.
-    # O staging do mongodump usa /tmp — com read_only ele vira tmpfs (RAM) e
-    # conta no limite de memória. Para bases grandes, troque o tmpfs por um
-    # diretório de disco (ex.: ./tmp:/tmp) e ajuste os limites.
+      - "10001"                      # mssql gid: allows reading the .bak files (mode 640)
+    # Hardening (optional, but recommended): immutable rootfs, no privilege escalation.
+    # mongodump stages in /tmp — with read_only it becomes a tmpfs (RAM) and
+    # counts against the memory limit. For large databases, swap the tmpfs for
+    # a disk directory (e.g. ./tmp:/tmp) and adjust the limits.
     read_only: true
     tmpfs:
       - /tmp:size=128m
@@ -79,138 +79,138 @@ volumes:
 
 ## Engines
 
-Um engine é habilitado quando suas variáveis obrigatórias estão definidas — configure um, outro ou os dois.
+An engine is enabled when its required variables are set — configure one, the other, or both.
 
 ### MongoDB
 
-| Variável | Padrão | Descrição |
+| Variable | Default | Description |
 |---|---|---|
-| `MONGO_URI` | — | Habilita o engine. Todas as bases do cluster são incluídas |
-| `EXCLUDE_DBS` | `admin config local` | Bases ignoradas |
-| `DUMP_TIMEOUT_MINUTES` | `60` | Aborta um dump travado. **Aumente se as bases forem grandes** |
+| `MONGO_URI` | — | Enables the engine. Every database in the cluster is included |
+| `EXCLUDE_DBS` | `admin config local` | Databases to skip |
+| `DUMP_TIMEOUT_MINUTES` | `60` | Aborts a stuck dump. **Increase it for large databases** |
 
 ### SQL Server
 
-O `BACKUP DATABASE` do SQL Server é **sempre server-side**: o `.bak` nasce no disco do servidor. Por isso o diretório de backup do SQL Server precisa ser um volume montado **também neste container** (como no compose acima). O driver manda o servidor gravar o `.bak` lá, move o arquivo para `/backups` e segue o fluxo normal (S3 + retenção).
+SQL Server's `BACKUP DATABASE` is **always server-side**: the `.bak` is written to the server's own disk. That's why SQL Server's backup directory must be a volume mounted **in this container too** (as in the compose file above). The driver tells the server to write the `.bak` there, moves the file to `/backups` and continues with the normal flow (S3 + retention).
 
-| Variável | Padrão | Descrição |
+| Variable | Default | Description |
 |---|---|---|
-| `MSSQL_HOST` / `MSSQL_PASSWORD` | — | Habilitam o engine |
+| `MSSQL_HOST` / `MSSQL_PASSWORD` | — | Enable the engine |
 | `MSSQL_PORT` | `1433` | |
-| `MSSQL_USER` | `sa` | Precisa de permissão de BACKUP/RESTORE |
-| `MSSQL_DATABASES` | *(vazio)* | Lista separada por espaço; vazio = todas as bases de usuário |
-| `MSSQL_EXCLUDE_DBS` | *(vazio)* | Bases ignoradas |
-| `MSSQL_DIR_SERVER` | `/var/opt/mssql/backup` | Diretório de backup **como o SQL Server o vê** |
-| `MSSQL_DIR_LOCAL` | `/mssql-backup` | O **mesmo volume**, montado neste container |
-| `MSSQL_COMPRESS` | `false` | `WITH COMPRESSION` — exige edição com suporte (não Express) |
-| `MSSQL_TIMEOUT_MINUTES` | `60` | Timeout de cada BACKUP/RESTORE |
-| `MSSQL_CA_FILE` | — | CA (PEM) que assina o certificado do servidor. Definida, a conexão é cifrada e o certificado validado; vazia, o certificado é aceito sem validação (vulnerável a MITM na rede) |
+| `MSSQL_USER` | `sa` | Needs BACKUP/RESTORE permission |
+| `MSSQL_DATABASES` | *(empty)* | Space-separated list; empty = all user databases |
+| `MSSQL_EXCLUDE_DBS` | *(empty)* | Databases to skip |
+| `MSSQL_DIR_SERVER` | `/var/opt/mssql/backup` | Backup directory **as SQL Server sees it** |
+| `MSSQL_DIR_LOCAL` | `/mssql-backup` | The **same volume**, mounted in this container |
+| `MSSQL_COMPRESS` | `false` | `WITH COMPRESSION` — requires an edition that supports it (not Express) |
+| `MSSQL_TIMEOUT_MINUTES` | `60` | Timeout for each BACKUP/RESTORE |
+| `MSSQL_CA_FILE` | — | CA (PEM) that signs the server certificate. When set, the connection is encrypted and the certificate verified; when empty, the certificate is accepted without verification (exposed to network MITM) |
 
-**Permissões do volume compartilhado** (uma vez, após criar os containers): o SQL Server roda como uid 10001 e cria os `.bak` com modo 640; este container roda como uid 1000.
+**Shared volume permissions** (once, after creating the containers): SQL Server runs as uid 10001 and creates `.bak` files with mode 640; this container runs as uid 1000.
 
 ```bash
-# o diretório precisa aceitar escrita dos dois lados
-docker exec -u root <container-mssql> chmod 0777 /var/opt/mssql/backup
-# e este container precisa do grupo do mssql para ler os .bak (group_add acima,
-# ou --group-add 10001 no docker run)
+# the directory must be writable from both sides
+docker exec -u root <mssql-container> chmod 0777 /var/opt/mssql/backup
+# and this container needs the mssql group to read the .bak files (group_add above,
+# or --group-add 10001 with docker run)
 ```
 
-> Restore assume o mesmo servidor (ou mesmo layout de disco): usa `WITH REPLACE`, sem `MOVE`.
+> Restore assumes the same server (or the same disk layout): it uses `WITH REPLACE`, without `MOVE`.
 
-### Bancos futuros
+### Adding databases
 
-Um driver novo é um script em `scripts/drivers/<engine>.sh` implementando 4 subcomandos: `enabled`, `info`, `backup`, `restore <db> <arquivo>`. O agendador, a UI, o S3 e a retenção já funcionam sem mudança — o engine aparece na interface automaticamente.
+A new driver is a script at `scripts/drivers/<engine>.sh` implementing 4 subcommands: `enabled`, `info`, `backup`, `restore <db> <file>`. The scheduler, UI, S3 upload and retention work unchanged — the engine shows up in the UI automatically.
 
-## UI web
+## Web UI
 
-- **Login obrigatório**: `ADMIN_PASSWORD` (mín. 8 caracteres) precisa estar definida no modo `serve`; `ADMIN_USER` padrão `admin`
-- **Proteções**: comparação em tempo constante, 5 tentativas erradas = 15 min de bloqueio por IP, cookie `HttpOnly`+`SameSite=Strict` assinado (HMAC), verificação de `Origin` nos POSTs, CSP estrito
-- **Exposição**: o container serve HTTP puro — na internet, coloque atrás de um reverse proxy com HTTPS (o cookie `Secure` liga sozinho via `X-Forwarded-Proto`)
-- **Sessões**: defina `SESSION_SECRET` para o login sobreviver a restarts do container. O logout e a troca de `ADMIN_PASSWORD` invalidam todas as sessões abertas
-- **Jobs**: um por vez (backup agendado, backup manual e restore não concorrem); log de cada job visível na UI
+- **Login required**: `ADMIN_PASSWORD` (min. 8 characters) must be set in `serve` mode; `ADMIN_USER` defaults to `admin`
+- **Protections**: constant-time comparison, 5 failed attempts = 15-minute lockout per IP, signed (HMAC) `HttpOnly`+`SameSite=Strict` cookie, `Origin` check on POSTs, strict CSP
+- **Exposure**: the container serves plain HTTP — on the internet, put it behind a reverse proxy with HTTPS (the `Secure` cookie turns on automatically via `X-Forwarded-Proto`)
+- **Sessions**: set `SESSION_SECRET` so logins survive container restarts. Logging out or changing `ADMIN_PASSWORD` invalidates every open session
+- **Jobs**: one at a time (scheduled backup, manual backup and restore never run concurrently); each job's log is visible in the UI
 
-| Variável | Padrão | Descrição |
+| Variable | Default | Description |
 |---|---|---|
-| `ADMIN_PASSWORD` | — | **Obrigatória no modo serve** |
+| `ADMIN_PASSWORD` | — | **Required in serve mode** |
 | `ADMIN_USER` | `admin` | |
 | `WEB_PORT` | `8080` | |
-| `SESSION_TTL_HOURS` | `12` | Validade do login |
-| `SESSION_SECRET` | *(aleatório)* | Fixe para manter sessões entre restarts (mín. 32 caracteres: `openssl rand -hex 32`) |
-| `COOKIE_SECURE` | `auto` | `auto` liga o cookie Secure atrás de HTTPS |
-| `PUBLIC_URL` | — | Domínio público, quando o reverse proxy não repassa o Host original (ver abaixo) |
+| `SESSION_TTL_HOURS` | `12` | Login lifetime |
+| `SESSION_SECRET` | *(random)* | Set it to keep sessions across restarts (min. 32 characters: `openssl rand -hex 32`) |
+| `COOKIE_SECURE` | `auto` | `auto` enables the Secure cookie behind HTTPS |
+| `PUBLIC_URL` | — | Public domain, when the reverse proxy doesn't forward the original Host (see below) |
 
-### "origem inválida" atrás de reverse proxy
+### "origem inválida" (invalid origin) behind a reverse proxy
 
-A UI compara o header `Origin` que o navegador manda com o `Host` que o container recebe, como proteção CSRF. Se o seu reverse proxy (Cloudflare, nginx, Traefik...) não repassar o `Host` original intacto para o container — por exemplo, nginx sem `proxy_set_header Host $host;` —, `Origin` e `Host` não batem e o login falha com **"origem inválida"**.
+As CSRF protection, the UI compares the `Origin` header sent by the browser with the `Host` the container receives. If your reverse proxy (Cloudflare, nginx, Traefik...) doesn't forward the original `Host` untouched — e.g. nginx without `proxy_set_header Host $host;` — `Origin` and `Host` won't match and login fails with **"origem inválida"**.
 
-O jeito certo de resolver é configurar o proxy para repassar o `Host` original. Se isso não for possível, defina `PUBLIC_URL` com o domínio público (ex.: `PUBLIC_URL=https://backup.exemplo.com`): é uma variável do ambiente do container, definida pelo admin, não um header da requisição — por isso não reabre brecha nenhuma de CSRF (ao contrário de confiar em `X-Forwarded-Host`, que um `fetch()` de outra origem poderia forjar).
+The right fix is to configure the proxy to forward the original `Host`. If that's not possible, set `PUBLIC_URL` to the public domain (e.g. `PUBLIC_URL=https://backup.example.com`): it's a container environment variable set by the admin, not a request header — so it doesn't reopen any CSRF hole (unlike trusting `X-Forwarded-Host`, which a cross-origin `fetch()` could forge).
 
-## Agendamento, retenção e S3
+## Scheduling, retention and S3
 
-| Variável | Padrão | Descrição |
+| Variable | Default | Description |
 |---|---|---|
-| `INTERVAL_HOURS` | `6` | Intervalo entre os backups. Aceita fração (`0.5` = 30 min) |
-| `MAX_BACKUPS` | `3` | Arquivos mantidos **por base** no disco local |
-| `RETRY_MINUTES` | `15` | Espera antes de tentar de novo, se o ciclo falhar |
-| `RUN_ON_START` | `true` | Faz um backup ao subir o container |
-| `BACKUP_DIR` | `/backups` | Onde os arquivos são gravados (monte um volume aqui) |
-| `S3_ENABLED` | `false` | Liga o envio offsite |
-| `S3_BUCKET` | — | Bucket de destino |
-| `S3_PREFIX` | *(vazio)* | Keys: `<prefix>/<engine>/<base>/<arquivo>` |
-| `S3_REGION` | `us-east-1` | Região |
-| `S3_ENDPOINT` | — | Só para S3-compatíveis (MinIO, R2). Vazio = AWS |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | — | Credencial do upload |
+| `INTERVAL_HOURS` | `6` | Interval between backups. Accepts fractions (`0.5` = 30 min) |
+| `MAX_BACKUPS` | `3` | Files kept **per database** on local disk |
+| `RETRY_MINUTES` | `15` | Wait before retrying when a cycle fails |
+| `RUN_ON_START` | `true` | Runs a backup when the container starts |
+| `BACKUP_DIR` | `/backups` | Where files are written (mount a volume here) |
+| `S3_ENABLED` | `false` | Enables offsite upload |
+| `S3_BUCKET` | — | Target bucket |
+| `S3_PREFIX` | *(empty)* | Keys: `<prefix>/<engine>/<db>/<file>` |
+| `S3_REGION` | `us-east-1` | Region |
+| `S3_ENDPOINT` | — | Only for S3-compatible services (MinIO, R2). Empty = AWS |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | — | Upload credentials |
 
-## Comandos (CLI, sem UI)
+## Commands (CLI, no UI)
 
-Prefixe com `docker run --rm --env-file .env -v ./backups:/backups lucianoscastro/db-backup:latest`:
+Prefix with `docker run --rm --env-file .env -v ./backups:/backups lucianoscastro/db-backup:latest`:
 
 ```bash
-backup                     # backup de todos os engines habilitados
-backup mongo               # só um engine
-list                       # lista os backups locais
-restore mongo loja         # restaura do arquivo local mais recente
-restore mongo loja --from-s3
-restore mongo loja --drop  # (mongo) apaga as coleções antes de restaurar
-restore mssql vendas       # SQL Server: sempre WITH REPLACE
+backup                     # back up every enabled engine
+backup mongo               # a single engine
+list                       # list local backups
+restore mongo shop         # restore from the most recent local file
+restore mongo shop --from-s3
+restore mongo shop --drop  # (mongo) drop collections before restoring
+restore mssql sales        # SQL Server: always WITH REPLACE
 ```
 
-## Segurança: a credencial do backup não deveria conseguir restaurar
+## Security: the backup credential shouldn't be able to restore
 
-A recomendação é dar ao container uma credencial IAM **só com `s3:PutObject`** no prefixo:
+Give the container an IAM credential with **only `s3:PutObject`** on the prefix:
 
 ```json
 {
   "Effect": "Allow",
   "Action": "s3:PutObject",
-  "Resource": "arn:aws:s3:::MEU-BUCKET/*"
+  "Resource": "arn:aws:s3:::MY-BUCKET/*"
 }
 ```
 
-Quem invadir o servidor não consegue **ler nem apagar** os backups — só escrever por cima de keys novas. A contrapartida é que `restore --from-s3` **não funciona com essa credencial**: o restore precisa de outra, com `GetObject`/`ListBucket`, usada só na hora de restaurar.
+Whoever compromises the server can't **read or delete** the backups — only write new keys. The trade-off is that `restore --from-s3` **doesn't work with this credential**: restoring needs a separate one with `GetObject`/`ListBucket`, used only at restore time.
 
-Com `PutObject` apenas, a retenção remota é responsabilidade da **lifecycle policy do bucket** — o container é incapaz de apagar objetos.
+With `PutObject` only, remote retention is handled by the **bucket lifecycle policy** — the container can't delete objects.
 
-## Como funciona
+## How it works
 
-- O **mongodump** roda uma vez por ciclo sem `--db`, o que já descobre e dumpa todas as bases; cada base sai como um `.tar` próprio. A imagem não precisa do `mongosh` (Node.js, ~200 MB) nem do `aws-cli` — o upload é `curl --aws-sigv4`.
-- O `mongodump`/`mongorestore` são **compilados do fonte upstream** ([mongo-tools](https://github.com/mongodb/mongo-tools) 100.17.0) no build da imagem, com toolchain Go e `x/crypto`/`x/net` atuais — o pacote pré-compilado da distro carregava dezenas de CVEs de dependências defasadas.
-- O SQL Server é acessado pelo **sqlrun**, um executor T-SQL mínimo do próprio projeto (`web/sqlrun`, ~150 linhas sobre o driver oficial [go-mssqldb](https://github.com/microsoft/go-mssqldb)). Ele substitui o go-sqlcmd da Microsoft, que embutia cliente Docker, SSH e SDK Azure — dezenas de CVEs de código que nunca seria executado aqui. O `BACKUP DATABASE ... WITH INIT, FORMAT, CHECKSUM` gera o `.bak` no volume compartilhado e o driver o move para `/backups`.
-- A **UI web** é um binário Go (stdlib, sem dependências) que só executa os mesmos scripts da CLI — a lógica de backup vive nos scripts, sempre.
+- **mongodump** runs once per cycle without `--db`, which discovers and dumps every database; each database becomes its own `.tar`. The image needs neither `mongosh` (Node.js, ~200 MB) nor `aws-cli` — uploads use `curl --aws-sigv4`.
+- `mongodump`/`mongorestore` are **built from upstream source** ([mongo-tools](https://github.com/mongodb/mongo-tools) 100.17.0) during the image build, with a current Go toolchain and `x/crypto`/`x/net` — the distro's prebuilt package carried dozens of CVEs from outdated dependencies.
+- SQL Server is accessed through **sqlrun**, the project's own minimal T-SQL runner (`web/sqlrun`, ~150 lines on top of the official [go-mssqldb](https://github.com/microsoft/go-mssqldb) driver). It replaces Microsoft's go-sqlcmd, which bundled a Docker client, SSH and the Azure SDK — dozens of CVEs in code that would never run here. `BACKUP DATABASE ... WITH INIT, FORMAT, CHECKSUM` writes the `.bak` to the shared volume and the driver moves it to `/backups`.
+- The **web UI** is a Go binary (stdlib, no dependencies) that only runs the same scripts as the CLI — backup logic always lives in the scripts.
 
-Limites conhecidos:
+Known limits:
 
-- O upload usa PUT simples: **teto de 5 GB por arquivo**. Acima disso o backup local continua, mas o envio falha com erro explícito (seria preciso multipart).
-- O dump do Mongo vai para um diretório temporário antes de virar `.tar`, então o pico de disco é ~2× o tamanho do dump comprimido.
-- A retenção local só apaga o arquivo antigo **depois** que o novo foi gravado e validado.
-- Os backups são gravados com permissão `0600` (só o uid 1000 lê) e **sem criptografia**: no S3, ative a criptografia padrão do bucket (SSE).
+- Uploads use a single PUT: **5 GB cap per file**. Above that the local backup still succeeds, but the upload fails with an explicit error (multipart would be required).
+- The Mongo dump goes to a temporary directory before becoming a `.tar`, so peak disk usage is ~2× the compressed dump size.
+- Local retention only deletes the old file **after** the new one has been written and validated.
+- Backups are written with mode `0600` (readable only by uid 1000) and **unencrypted**: on S3, enable the bucket's default encryption (SSE).
 
-### Migrando da imagem mongo-only
+### Migrating from the mongo-only image
 
-O layout local mudou de `/backups/<base>/` para `/backups/<engine>/<base>/`:
+The local layout changed from `/backups/<db>/` to `/backups/<engine>/<db>/`:
 
 ```bash
-mkdir -p backups/mongo && mv backups/<base> backups/mongo/
+mkdir -p backups/mongo && mv backups/<db> backups/mongo/
 ```
 
-No S3 nada muda se você usava o `S3_PREFIX=mongo` padrão antigo — o prefixo agora é vazio e o engine (`mongo/`) entra no lugar. A CLI de restore ganhou o engine como primeiro argumento (`restore mongo loja` em vez de `restore loja`).
+Nothing changes on S3 if you used the old default `S3_PREFIX=mongo` — the prefix is now empty and the engine (`mongo/`) takes its place. The restore CLI gained the engine as its first argument (`restore mongo shop` instead of `restore shop`).
