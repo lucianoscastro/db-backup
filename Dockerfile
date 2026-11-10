@@ -24,7 +24,7 @@ RUN wget -qO /tmp/mongo-tools.tar.gz "https://github.com/mongodb/mongo-tools/arc
  && cd "mongo-tools-${MONGO_TOOLS_VERSION}" \
  # o vendor/ do tarball ficaria dessincronizado após o bump; module mode resolve
  && rm -rf vendor \
- && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 golang.org/x/text@v0.44.0 golang.org/x/sync@v0.25.0 \
+ && go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 golang.org/x/text@v0.44.0 golang.org/x/sync@v0.25.0 github.com/klauspost/compress@v1.20.4 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.VersionStr=${MONGO_TOOLS_VERSION}" -o /out/mongodump ./mongodump/main \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.VersionStr=${MONGO_TOOLS_VERSION}" -o /out/mongorestore ./mongorestore/main
@@ -33,7 +33,7 @@ FROM alpine:3.23
 
 # curl 8.x assina SigV4 nativamente (--aws-sigv4), então o upload S3 não
 # precisa de aws-cli nem mc.
-RUN apk add --no-cache bash curl ca-certificates tzdata
+RUN apk upgrade --no-cache && apk add --no-cache bash curl ca-certificates tzdata
 
 COPY --from=tools /out/mongodump /out/mongorestore /usr/bin/
 COPY --from=build /out/backupd /out/sqlrun /usr/local/bin/
