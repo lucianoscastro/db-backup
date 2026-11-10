@@ -44,6 +44,8 @@ if [ "$source_arg" = "--from-s3" ]; then
     [ -n "$key" ] || { echo "[Restore] ERRO: nenhum backup de '$db' no S3." >&2; exit 1; }
 
     archive="/tmp/$(basename "$key")"
+    # sem exec no fim: a cópia baixada não pode sobrar no container
+    trap 'rm -f "$archive"' EXIT
     echo "[Restore] Baixando s3://${S3_BUCKET}/${key}"
     s3_download "$key" "$archive"
 elif [ -n "$source_arg" ]; then
@@ -56,4 +58,4 @@ fi
 
 [ -f "$archive" ] || { echo "[Restore] ERRO: arquivo não encontrado: $archive" >&2; exit 1; }
 
-exec "$drv" restore "$db" "$archive" ${extra_args[@]+"${extra_args[@]}"}
+"$drv" restore "$db" "$archive" ${extra_args[@]+"${extra_args[@]}"}

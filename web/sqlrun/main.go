@@ -7,7 +7,7 @@
 // as mensagens informativas do servidor e sair com código != 0 em erro.
 //
 // Conexão via env (MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD — a
-// senha nunca passa por argv). Flags: -t <segundos> e -Q <batch>.
+// senha nunca passa por argv — e MSSQL_CA_FILE opcional). Flags: -t <segundos> e -Q <batch>.
 package main
 
 import (
@@ -50,17 +50,26 @@ func main() {
 		user = "sa"
 	}
 
-	// trustservercertificate: o container não tem a CA do servidor (mesmo
-	// comportamento do -C do sqlcmd que este binário substitui).
+	params := url.Values{
+		"app name":     {"db-backup"},
+		"dial timeout": {"15"},
+	}
+	// Com MSSQL_CA_FILE o certificado do servidor é validado e a sessão inteira
+	// é cifrada — sem isso um MITM na rede captura a senha no login.
+	// ponytail: sem CA cai no trustservercertificate (compatível com o cert
+	// autoassinado padrão do SQL Server, como o -C do sqlcmd), que não protege
+	// contra MITM; o upgrade é sempre definir MSSQL_CA_FILE.
+	if ca := os.Getenv("MSSQL_CA_FILE"); ca != "" {
+		params.Set("encrypt", "true")
+		params.Set("certificate", ca)
+	} else {
+		params.Set("trustservercertificate", "true")
+	}
 	dsn := &url.URL{
-		Scheme: "sqlserver",
-		User:   url.UserPassword(user, pass),
-		Host:   net.JoinHostPort(host, port),
-		RawQuery: url.Values{
-			"app name":               {"db-backup"},
-			"trustservercertificate": {"true"},
-			"dial timeout":           {"15"},
-		}.Encode(),
+		Scheme:   "sqlserver",
+		User:     url.UserPassword(user, pass),
+		Host:     net.JoinHostPort(host, port),
+		RawQuery: params.Encode(),
 	}
 
 	db, err := sql.Open("sqlserver", dsn.String())

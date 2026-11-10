@@ -241,3 +241,24 @@ func TestRestoreRejectsTraversalAndUnknowns(t *testing.T) {
 		}
 	}
 }
+
+func TestLogoutRevokesCopiedToken(t *testing.T) {
+	h := testServer(t).routes()
+	c := sessionCookie(t, login(t, h, "admin", "senha-teste-123"))
+
+	req := httptest.NewRequest("POST", "/logout", nil)
+	req.AddCookie(c)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("logout: esperado 303, veio %d", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/state", nil)
+	req.AddCookie(c)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("token copiado após logout: esperado 401, veio %d", w.Code)
+	}
+}
